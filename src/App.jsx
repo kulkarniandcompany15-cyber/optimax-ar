@@ -1,4 +1,18 @@
 import { useState, useMemo, useRef, useEffect } from "react";
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from "firebase/firestore";
+
+/* ─── FIREBASE CONFIG ─────────────────────────────────────────────── */
+const firebaseConfig = {
+  apiKey: "AIzaSyDrJ1WtC4UEmPHRmkMJyZNl1drRSe0KoQM",
+  authDomain: "optimax-ar.firebaseapp.com",
+  projectId: "optimax-ar",
+  storageBucket: "optimax-ar.firebasestorage.app",
+  messagingSenderId: "496188810242",
+  appId: "1:496188810242:web:73fd86aeadfc72e3db331b"
+};
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
 
 /* ─── SEED DATA ──────────────────────────────────────────────────────── */
 const SEED_INVOICES = [
@@ -91,11 +105,64 @@ export default function App() {
   const [users,     setUsers]     = useState(INIT_USERS);
   const [invoices,  setInvoices]  = useState(SEED_INVOICES);
   const [callLogs,  setCallLogs]  = useState([]);
-  const [followUps, setFollowUps] = useState({});  // invId → {date, note}
+  const [followUps, setFollowUps] = useState({});
   const [cats,      setCats]      = useState(DEFAULT_CATS);
   const [tab,       setTab]       = useState("dashboard");
   const [settingsTab, setSettingsTab] = useState("users");
   const [fuPopupDismissed, setFuPopupDismissed] = useState(false);
+  const [dbLoaded, setDbLoaded]   = useState(false);
+  const [syncing,  setSyncing]    = useState(false);
+
+  /* ── FIREBASE REAL-TIME LISTENERS ──────────────────────────────── */
+  useEffect(() => {
+    // Listen to invoices
+    const unsubInv = onSnapshot(collection(db, "invoices"), snap => {
+      if(!snap.empty) {
+        const data = snap.docs.map(d => ({...d.data(), id:d.id}));
+        setInvoices(data);
+      }
+      setDbLoaded(true);
+    }, err => { console.error("Firestore error:", err); setDbLoaded(true); });
+
+    // Listen to callLogs
+    const unsubLogs = onSnapshot(collection(db, "callLogs"), snap => {
+      const data = snap.docs.map(d => ({...d.data(), id:d.id}));
+      setCallLogs(data.sort((a,b) => b.timestamp?.localeCompare(a.timestamp||"")));
+    });
+
+    // Listen to settings (users, cats, followUps)
+    const unsubSettings = onSnapshot(doc(db, "settings", "main"), snap => {
+      if(snap.exists()) {
+        const d = snap.data();
+        if(d.users)     setUsers(d.users);
+        if(d.cats)      setCats(d.cats);
+        if(d.followUps) setFollowUps(d.followUps);
+      }
+    });
+
+    return () => { unsubInv(); unsubLogs(); unsubSettings(); };
+  }, []);
+
+  /* ── FIREBASE SEED (first time only) ───────────────────────────── */
+  useEffect(() => {
+    if(!dbLoaded) return;
+    const seedFirebase = async () => {
+      try {
+        const snap = await new Promise(res => {
+          const unsub = onSnapshot(collection(db, "invoices"), s => { unsub(); res(s); });
+        });
+        if(snap.empty) {
+          setSyncing(true);
+          const batch = writeBatch(db);
+          SEED_INVOICES.forEach(inv => batch.set(doc(db, "invoices", inv.id), inv));
+          batch.set(doc(db, "settings", "main"), { users:INIT_USERS, cats:DEFAULT_CATS, followUps:{} });
+          await batch.commit();
+          setSyncing(false);
+        }
+      } catch(e) { console.error("Seed error:", e); setSyncing(false); }
+    };
+    seedFirebase();
+  }, [dbLoaded]);
 
   // Modals
   const [callModal,    setCallModal]    = useState(null);
@@ -175,20 +242,52 @@ export default function App() {
     return buckets;
   }, [myPending]);
 
+  /* ── FIREBASE SYNC HELPERS ─────────────────────────────────────── */
+  const syncInvoice = async (inv) => {
+    try { await setDoc(doc(db, "invoices", inv.id), inv); }
+    catch(e) { console.error("Sync error:", e); }
+  };
+  const syncSettings = async (updates) => {
+    try { await setDoc(doc(db, "settings", "main"), updates, {merge:true}); }
+    catch(e) { console.error("Settings sync error:", e); }
+  };
+  const syncCallLog = async (log) => {
+    try { await setDoc(doc(db, "callLogs", log.id), log); }
+    catch(e) { console.error("CallLog sync error:", e); }
+  };
+
   /* ── ACTIONS ───────────────────────────────────────────────────── */
   const addPaymentToInv = (invId, amount, mode, note="") => {
     const p = { id:Date.now()+"", amount:Number(amount), mode, note, date:TODAY_STR, time:new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}), addedBy:user?.name||"Staff" };
-    setInvoices(prev => prev.map(i => {
-      if(i.id !== invId) return i;
-      const newPaid = Math.min(i.originalAmt, i.paidAmt + Number(amount));
-      return {...i, paidAmt:newPaid, payments:[...(i.payments||[]), p]};
-    }));
+    setInvoices(prev => {
+      const updated = prev.map(i => {
+        if(i.id !== invId) return i;
+        const newPaid = Math.min(i.originalAmt, i.paidAmt + Number(amount));
+        const newInv = {...i, paidAmt:newPaid, payments:[...(i.payments||[]), p]};
+        syncInvoice(newInv);
+        return newInv;
+      });
+      return updated;
+    });
   };
 
   const logCall = data => {
-    setCallLogs(p => [{ id:Date.now()+"", ...data, timestamp:new Date().toISOString() }, ...p]);
-    if(data.nextFollowUpDate) setFollowUps(p => ({...p, [data.invoiceId]:{ date:fromInp(data.nextFollowUpDate), note:data.notes }}));
-    if(data.status === "paid") setInvoices(p => p.map(i => i.id===data.invoiceId ? {...i, paidAmt:i.originalAmt} : i));
+    const newLog = { id:Date.now()+"", ...data, timestamp:new Date().toISOString() };
+    setCallLogs(p => [newLog, ...p]);
+    syncCallLog(newLog);
+    if(data.nextFollowUpDate) {
+      const newFU = {...followUps, [data.invoiceId]:{ date:fromInp(data.nextFollowUpDate), note:data.notes }};
+      setFollowUps(newFU);
+      syncSettings({followUps: newFU});
+    }
+    if(data.status === "paid") {
+      setInvoices(p => p.map(i => {
+        if(i.id!==data.invoiceId) return i;
+        const updated = {...i, paidAmt:i.originalAmt};
+        syncInvoice(updated);
+        return updated;
+      }));
+    }
     if(data.status === "partial" && data.partialAmt) addPaymentToInv(data.invoiceId, data.partialAmt, data.payMode||"Cash", data.notes);
     setCallModal(null);
   };
@@ -197,7 +296,9 @@ export default function App() {
     setInvoices(p => p.map(i => {
       if(i.id !== invId) return i;
       const upd = (i.payments||[]).map(p => p.id===payId ? {...p, amount:Number(amt), mode} : p);
-      return {...i, payments:upd, paidAmt:Math.min(i.originalAmt, upd.reduce((s,p)=>s+p.amount,0))};
+      const updated = {...i, payments:upd, paidAmt:Math.min(i.originalAmt, upd.reduce((s,p)=>s+p.amount,0))};
+      syncInvoice(updated);
+      return updated;
     }));
     setEditPayModal(null);
   };
@@ -206,21 +307,43 @@ export default function App() {
     setInvoices(p => p.map(i => {
       if(i.id !== invId) return i;
       const upd = (i.payments||[]).filter(p => p.id !== payId);
-      return {...i, payments:upd, paidAmt:upd.reduce((s,p)=>s+p.amount,0)};
+      const updated = {...i, payments:upd, paidAmt:upd.reduce((s,p)=>s+p.amount,0)};
+      syncInvoice(updated);
+      return updated;
     }));
     setEditPayModal(null);
   };
 
   const saveInvoice = (data, id) => {
-    if(id) setInvoices(p => p.map(i => i.id===id ? {...i,...data, originalAmt:Number(data.originalAmt)} : i));
-    else   setInvoices(p => [...p, {...data, id:"i"+Date.now(), paidAmt:0, payments:[], assignedTo:"", originalAmt:Number(data.originalAmt)}]);
+    if(id) {
+      setInvoices(p => p.map(i => {
+        if(i.id!==id) return i;
+        const updated = {...i,...data, originalAmt:Number(data.originalAmt)};
+        syncInvoice(updated);
+        return updated;
+      }));
+    } else {
+      const newInv = {...data, id:"i"+Date.now(), paidAmt:0, payments:[], assignedTo:"", originalAmt:Number(data.originalAmt)};
+      setInvoices(p => [...p, newInv]);
+      syncInvoice(newInv);
+    }
     setAddInvModal(false); setEditInvModal(null);
   };
 
-  const deleteInvoice = id => { if(window.confirm("Delete this invoice?")) setInvoices(p => p.filter(i => i.id !== id)); };
+  const deleteInvoice = async id => {
+    if(window.confirm("Delete this invoice?")) {
+      setInvoices(p => p.filter(i => i.id !== id));
+      try { await deleteDoc(doc(db, "invoices", id)); } catch(e) { console.error(e); }
+    }
+  };
 
   const assignToUser = (invIds, userName) => {
-    setInvoices(p => p.map(i => invIds.includes(i.id) ? {...i, assignedTo:userName} : i));
+    setInvoices(p => p.map(i => {
+      if(!invIds.includes(i.id)) return i;
+      const updated = {...i, assignedTo:userName};
+      syncInvoice(updated);
+      return updated;
+    }));
     setAssignModal(null);
   };
 
@@ -336,6 +459,19 @@ export default function App() {
   };
   const Lbl = ({c}) => <div style={{fontSize:10,color:"#475569",marginBottom:4,fontWeight:700,letterSpacing:.5,textTransform:"uppercase"}}>{c}</div>;
   const canManage = user && (user.role === "owner" || user.role === "accountant");
+
+  if(!dbLoaded) return (
+    <div style={{background:"#080c14",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+      <div style={{fontSize:48}}>💼</div>
+      <div style={{fontWeight:900,fontSize:22,color:"#f59e0b"}}>OPTIMAX-AR Manager</div>
+      <div style={{fontSize:13,color:"#475569"}}>{syncing?"Setting up database for first time...":"Connecting to database..."}</div>
+      <div style={{display:"flex",gap:6,marginTop:8}}>
+        {[0,1,2].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:"#f59e0b",animation:`pulse 1s ${i*0.2}s infinite`,opacity:0.7}}/>)}
+      </div>
+      <style>{`@keyframes pulse{0%,100%{transform:scale(1);opacity:0.7}50%{transform:scale(1.4);opacity:1}}`}</style>
+    </div>
+  );
 
   if(!user) return <LoginBox users={users} onLogin={u=>{setUser(u);setFuPopupDismissed(false);}} S={S} Lbl={Lbl}/>;
 
@@ -1044,7 +1180,10 @@ export default function App() {
                 <button style={{...S.btn("#6366f1"),marginTop:12}} onClick={()=>{
                   if(!newUser.name||!newUser.username||!newUser.password)return alert("Fill all fields");
                   if(users.find(u=>u.username===newUser.username))return alert("Username already exists");
-                  setUsers(p=>[...p,{...newUser,id:"u"+Date.now()}]);
+                  const newU = {...newUser,id:"u"+Date.now()};
+                  const updUsers = [...users, newU];
+                  setUsers(updUsers);
+                  syncSettings({users: updUsers});
                   setNewUser({name:"",username:"",password:"",role:"staff",color:"#10b981"});
                   alert(`User "${newUser.name}" added!`);
                 }}>+ Add User</button>
@@ -1371,6 +1510,7 @@ export default function App() {
       <div className="no-print" style={{background:"#0d1520",borderBottom:"1px solid #1f2d3d",padding:"11px 22px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div><div style={{fontWeight:900,fontSize:18,color:"#f59e0b"}}>💼 OPTIMAX-AR Manager</div><div style={{fontSize:10,color:"#334155"}}>Account Receivable · 2025–26</div></div>
         <div style={{display:"flex",gap:9,alignItems:"center"}}>
+          {syncing&&<div style={{background:"#f59e0b22",border:"1px solid #f59e0b44",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#f59e0b",fontWeight:700}}>🔄 Syncing...</div>}
           {todayFU.length>0&&<div style={{background:"#ef444422",border:"1px solid #ef444455",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#ef4444",fontWeight:700,cursor:"pointer"}} onClick={()=>setFuPopupDismissed(false)}>🔴 {todayFU.length} Follow-ups Due!</div>}
           {brokenPromises.length>0&&<div style={{background:"#f59e0b22",border:"1px solid #f59e0b44",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#f59e0b",fontWeight:700}}>⚠️ {brokenPromises.length} Broken</div>}
           <div style={{background:"#1f2d3d",borderRadius:8,padding:"5px 13px",fontSize:12,display:"flex",alignItems:"center",gap:7}}>
