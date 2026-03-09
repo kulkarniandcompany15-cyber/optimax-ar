@@ -140,13 +140,18 @@ export default function App() {
       if(snap.exists()) {
         const d = snap.data();
         if(d.users) {
-          setUsers(d.users);
-          // Also update currently logged-in user if their data changed
-          setUser(prev => {
-            if(!prev) return prev;
-            const updated = d.users.find(u => u.id === prev.id);
-            return updated ? updated : prev;
-          });
+          // If Firebase still has old passwords, ignore and wait for seed to fix
+          const hasOldPasswords = d.users.some(u =>
+            ["owner123","acc123","ajay123","ganesh123"].includes(u.password)
+          );
+          if(!hasOldPasswords && d._version === 2) {
+            setUsers(d.users);
+            setUser(prev => {
+              if(!prev) return prev;
+              const updated = d.users.find(u => u.id === prev.id);
+              return updated ? updated : prev;
+            });
+          }
         }
         if(d.cats)      setCats(d.cats);
         if(d.followUps) setFollowUps(d.followUps);
@@ -156,44 +161,47 @@ export default function App() {
     return () => { unsubInv(); unsubLogs(); unsubSettings(); };
   }, []);
 
-  /* ── FIREBASE SEED (first time only) ───────────────────────────── */
+  /* ── FIREBASE SEED & RESET ──────────────────────────────────────── */
   useEffect(() => {
     if(!dbLoaded) return;
-    const seedFirebase = async () => {
+    const fixFirebase = async () => {
       try {
-        // Always ensure settings document exists in Firebase
+        setSyncing(true);
+        // ALWAYS force write correct settings to Firebase
+        // This overwrites any old/corrupt data
         const settingsSnap = await getDoc(doc(db, "settings", "main"));
-        if(!settingsSnap.exists()) {
-          // First time — create with only owner account
-          setSyncing(true);
-          await setDoc(doc(db, "settings", "main"), { users:INIT_USERS, cats:DEFAULT_CATS, followUps:{}, _version:2 });
-          setSyncing(false);
-        } else {
-          // Check if old version (has old users) — force reset to new clean users
-          const existing = settingsSnap.data();
-          const hasOldUsers = existing.users?.some(u => ["owner123","acc123","ajay123","ganesh123"].includes(u.password));
-          if(hasOldUsers || !existing._version) {
-            setSyncing(true);
-            // Keep any users that were manually added with new passwords, but reset defaults
-            await setDoc(doc(db, "settings", "main"), { users:INIT_USERS, cats:existing.cats||DEFAULT_CATS, followUps:existing.followUps||{}, _version:2 });
-            setSyncing(false);
-          }
+        const existing = settingsSnap.exists() ? settingsSnap.data() : {};
+        const needsReset = !existing._version ||
+          existing._version < 2 ||
+          existing.users?.some(u => ["owner123","acc123","ajay123","ganesh123"].includes(u.password));
+
+        if(needsReset) {
+          // Force write clean owner-only settings
+          await setDoc(doc(db, "settings", "main"), {
+            users: INIT_USERS,
+            cats: existing.cats || DEFAULT_CATS,
+            followUps: existing.followUps || {},
+            _version: 2
+          });
+          // Update local state immediately
+          setUsers(INIT_USERS);
+        } else if(existing.users) {
+          setUsers(existing.users);
         }
 
-        // Seed invoices only if collection is empty
+        // Seed invoices only if empty
         const invSnap = await new Promise(res => {
           const unsub = onSnapshot(collection(db, "invoices"), s => { unsub(); res(s); });
         });
         if(invSnap.empty) {
-          setSyncing(true);
           const batch = writeBatch(db);
           SEED_INVOICES.forEach(inv => batch.set(doc(db, "invoices", inv.id), inv));
           await batch.commit();
-          setSyncing(false);
         }
-      } catch(e) { console.error("Seed error:", e); setSyncing(false); }
+        setSyncing(false);
+      } catch(e) { console.error("Firebase fix error:", e); setSyncing(false); }
     };
-    seedFirebase();
+    fixFirebase();
   }, [dbLoaded]);
 
   // Modals
