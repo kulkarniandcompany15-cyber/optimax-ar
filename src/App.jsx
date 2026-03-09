@@ -1146,7 +1146,7 @@ export default function App() {
             {users.map(u=>(
               <div key={u.id} style={{background:"#0d1520",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
                 {editingUser===u.id?(
-                  <EditUserRow u={u} users={users} setUsers={setUsers} onDone={()=>setEditingUser(null)} S={S} Lbl={Lbl}/>
+                  <EditUserRow u={u} users={users} setUsers={setUsers} syncSettings={syncSettings} onDone={()=>setEditingUser(null)} S={S} Lbl={Lbl}/>
                 ):(
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div>
@@ -1155,7 +1155,7 @@ export default function App() {
                     </div>
                     <div style={{display:"flex",gap:6}}>
                       {canManage&&<button style={S.btn("#6366f1","#fff","5px 10px",11)} onClick={()=>setEditingUser(u.id)}>✏️ Edit</button>}
-                      {canManage&&u.role!=="owner"&&<button style={S.btn("#ef4444","#fff","5px 10px",11)} onClick={()=>{if(window.confirm(`Delete ${u.name}?`))setUsers(p=>p.filter(x=>x.id!==u.id));}}>🗑</button>}
+                      {canManage&&u.role!=="owner"&&<button style={S.btn("#ef4444","#fff","5px 10px",11)} onClick={()=>{if(window.confirm(`Delete ${u.name}?`)){const updUsers=users.filter(x=>x.id!==u.id);setUsers(updUsers);syncSettings({users:updUsers});}}}>🗑</button>}
                     </div>
                   </div>
                 )}
@@ -1197,15 +1197,15 @@ export default function App() {
           <div style={S.card}>
             <div style={{fontWeight:800,fontSize:14,color:"#94a3b8",marginBottom:14}}>📂 Manage Categories</div>
             <div style={{display:"flex",gap:8,marginBottom:13}}>
-              <input value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="New category name…" style={{...S.inp,flex:1}} onKeyDown={e=>e.key==="Enter"&&newCat&&(setCats(p=>[...p,newCat]),setNewCat(""))}/>
-              <button style={S.btn("#10b981")} onClick={()=>{if(newCat){setCats(p=>[...p,newCat]);setNewCat("");}}}>+ Add</button>
+              <input value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="New category name…" style={{...S.inp,flex:1}} onKeyDown={e=>{if(e.key==="Enter"&&newCat){const u=[...cats,newCat];setCats(u);syncSettings({cats:u});setNewCat("");}}}/>
+              <button style={S.btn("#10b981")} onClick={()=>{if(newCat){const u=[...cats,newCat];setCats(u);syncSettings({cats:u});setNewCat("");}}}>+ Add</button>
             </div>
             <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
               {cats.map(cat=>(
                 <div key={cat} style={{background:"#0d1520",border:"1px solid #1f2d3d",borderRadius:9,padding:"7px 14px",display:"flex",alignItems:"center",gap:9}}>
                   <span style={{fontWeight:600,fontSize:13}}>{cat}</span>
                   {!DEFAULT_CATS.includes(cat)
-                    ?<button style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:18,lineHeight:1}} onClick={()=>setCats(p=>p.filter(c=>c!==cat))}>×</button>
+                    ?<button style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:18,lineHeight:1}} onClick={()=>{const u=cats.filter(c=>c!==cat);setCats(u);syncSettings({cats:u});}}>×</button>
                     :<span style={{fontSize:10,color:"#334155"}}>default</span>}
                 </div>
               ))}
@@ -1575,19 +1575,27 @@ export default function App() {
 }
 
 /* ── EDIT USER ROW (inline) ──────────────────────────────────────── */
-function EditUserRow({u, users, setUsers, onDone, S, Lbl}) {
+function EditUserRow({u, users, setUsers, syncSettings, onDone, S, Lbl}) {
   const [form,setForm] = useState({...u});
   const set = k => e => setForm(p=>({...p,[k]:e.target.value}));
+  const handleSave = () => {
+    if(!form.name||!form.username||!form.password) return alert("All fields required!");
+    const updUsers = users.map(x => x.id===u.id ? form : x);
+    setUsers(updUsers);
+    syncSettings({users: updUsers}); // ← saves to Firebase
+    onDone();
+    alert("✅ User updated successfully!");
+  };
   return (
     <div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
         <div><Lbl c="Name"/><input style={S.inp} value={form.name} onChange={set("name")}/></div>
         <div><Lbl c="Username"/><input style={S.inp} value={form.username} onChange={set("username")}/></div>
-        <div><Lbl c="Password"/><input style={S.inp} value={form.password} onChange={set("password")}/></div>
+        <div><Lbl c="Password"/><input style={S.inp} value={form.password} onChange={set("password")} placeholder="New password"/></div>
         <div><Lbl c="Role"/><select style={S.inp} value={form.role} onChange={set("role")}><option value="staff">Staff</option><option value="accountant">Accountant</option><option value="owner">Owner</option></select></div>
       </div>
       <div style={{display:"flex",gap:6,marginTop:4}}>
-        <button style={S.btn("#10b981","#fff","5px 12px",12)} onClick={()=>{setUsers(p=>p.map(x=>x.id===u.id?form:x));onDone();}}>Save</button>
+        <button style={S.btn("#10b981","#fff","5px 12px",12)} onClick={handleSave}>💾 Save</button>
         <button style={S.btn("#1f2d3d","#fff","5px 12px",12)} onClick={onDone}>Cancel</button>
       </div>
     </div>
