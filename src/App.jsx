@@ -1,6 +1,9 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+﻿import { useState, useMemo, useRef, useEffect } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, getDoc } from "firebase/firestore";
+```
+
+
 
 /* ─── FIREBASE CONFIG ─────────────────────────────────────────────── */
 const firebaseConfig = {
