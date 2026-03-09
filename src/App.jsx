@@ -118,91 +118,104 @@ export default function App() {
     setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3500);
   };
 
-  /* ── FIREBASE REAL-TIME LISTENERS ──────────────────────────────── */
+  /* ── FIREBASE INIT ─────────────────────────────────────────────── */
   useEffect(() => {
-    // Listen to invoices
-    const unsubInv = onSnapshot(collection(db, "invoices"), snap => {
-      if(!snap.empty) {
-        const data = snap.docs.map(d => ({...d.data(), id:d.id}));
-        setInvoices(data);
-      }
-      setDbLoaded(true);
-    }, err => { console.error("Firestore error:", err); setDbLoaded(true); });
+    let unsubInv, unsubLogs, unsubSettings;
 
-    // Listen to callLogs
-    const unsubLogs = onSnapshot(collection(db, "callLogs"), snap => {
-      const data = snap.docs.map(d => ({...d.data(), id:d.id}));
-      setCallLogs(data.sort((a,b) => b.timestamp?.localeCompare(a.timestamp||"")));
-    });
+    const init = async () => {
+      try {
+        // STEP 1: Fix/create settings first
+        const settingsRef = doc(db, "settings", "main");
+        const settingsSnap = await getDoc(settingsRef);
 
-    // Listen to settings (users, cats, followUps)
-    const unsubSettings = onSnapshot(doc(db, "settings", "main"), snap => {
-      if(snap.exists()) {
-        const d = snap.data();
-        if(d.users) {
-          // If Firebase still has old passwords, ignore and wait for seed to fix
-          const hasOldPasswords = d.users.some(u =>
-            ["owner123","acc123","ajay123","ganesh123"].includes(u.password)
-          );
-          if(!hasOldPasswords && d._version === 2) {
-            setUsers(d.users);
-            setUser(prev => {
-              if(!prev) return prev;
-              const updated = d.users.find(u => u.id === prev.id);
-              return updated ? updated : prev;
+        if(!settingsSnap.exists()) {
+          // First time ever — create settings with owner only
+          await setDoc(settingsRef, {
+            users: INIT_USERS,
+            cats: DEFAULT_CATS,
+            followUps: {},
+            _v: 3
+          });
+          setUsers(INIT_USERS);
+        } else {
+          const d = settingsSnap.data();
+          const isOld = !d._v || d._v < 3 ||
+            (d.users||[]).some(u => ["owner123","acc123","ajay123","ganesh123"].includes(u.password));
+
+          if(isOld) {
+            // Old data — reset to owner only
+            await setDoc(settingsRef, {
+              users: INIT_USERS,
+              cats: d.cats || DEFAULT_CATS,
+              followUps: d.followUps || {},
+              _v: 3
             });
+            setUsers(INIT_USERS);
+          } else {
+            // Good data — load it
+            if(d.users)     setUsers(d.users);
+            if(d.cats)      setCats(d.cats);
+            if(d.followUps) setFollowUps(d.followUps);
           }
         }
-        if(d.cats)      setCats(d.cats);
-        if(d.followUps) setFollowUps(d.followUps);
-      }
-    });
 
-    return () => { unsubInv(); unsubLogs(); unsubSettings(); };
-  }, []);
-
-  /* ── FIREBASE SEED & RESET ──────────────────────────────────────── */
-  useEffect(() => {
-    if(!dbLoaded) return;
-    const fixFirebase = async () => {
-      try {
-        setSyncing(true);
-        // ALWAYS force write correct settings to Firebase
-        // This overwrites any old/corrupt data
-        const settingsSnap = await getDoc(doc(db, "settings", "main"));
-        const existing = settingsSnap.exists() ? settingsSnap.data() : {};
-        const needsReset = !existing._version ||
-          existing._version < 2 ||
-          existing.users?.some(u => ["owner123","acc123","ajay123","ganesh123"].includes(u.password));
-
-        if(needsReset) {
-          // Force write clean owner-only settings
-          await setDoc(doc(db, "settings", "main"), {
-            users: INIT_USERS,
-            cats: existing.cats || DEFAULT_CATS,
-            followUps: existing.followUps || {},
-            _version: 2
-          });
-          // Update local state immediately
-          setUsers(INIT_USERS);
-        } else if(existing.users) {
-          setUsers(existing.users);
-        }
-
-        // Seed invoices only if empty
-        const invSnap = await new Promise(res => {
-          const unsub = onSnapshot(collection(db, "invoices"), s => { unsub(); res(s); });
-        });
-        if(invSnap.empty) {
+        // STEP 2: Seed invoices if empty
+        const invSnap = await getDoc(doc(db, "invoices", "i1"));
+        if(!invSnap.exists()) {
+          setSyncing(true);
           const batch = writeBatch(db);
           SEED_INVOICES.forEach(inv => batch.set(doc(db, "invoices", inv.id), inv));
           await batch.commit();
+          setSyncing(false);
         }
-        setSyncing(false);
-      } catch(e) { console.error("Firebase fix error:", e); setSyncing(false); }
+
+        // STEP 3: Now start real-time listeners
+        unsubInv = onSnapshot(collection(db, "invoices"), snap => {
+          if(!snap.empty) {
+            setInvoices(snap.docs.map(d => ({...d.data(), id:d.id})));
+          }
+        });
+
+        unsubLogs = onSnapshot(collection(db, "callLogs"), snap => {
+          setCallLogs(snap.docs.map(d => ({...d.data(), id:d.id}))
+            .sort((a,b) => b.timestamp?.localeCompare(a.timestamp||"")));
+        });
+
+        unsubSettings = onSnapshot(settingsRef, snap => {
+          if(snap.exists()) {
+            const d = snap.data();
+            if(d._v === 3) {
+              if(d.users) {
+                setUsers(d.users);
+                setUser(prev => {
+                  if(!prev) return prev;
+                  const updated = d.users.find(u => u.id === prev.id);
+                  return updated || prev;
+                });
+              }
+              if(d.cats)      setCats(d.cats);
+              if(d.followUps) setFollowUps(d.followUps);
+            }
+          }
+        });
+
+        // STEP 4: Mark as loaded — show login screen
+        setDbLoaded(true);
+
+      } catch(e) {
+        console.error("Firebase init error:", e);
+        // Even if Firebase fails — still show app with local data
+        setDbLoaded(true);
+      }
     };
-    fixFirebase();
-  }, [dbLoaded]);
+
+    init();
+    return () => {
+      if(unsubInv)      unsubInv();
+      if(unsubLogs)     unsubLogs();
+      if(unsubSettings) unsubSettings();
+    };
+  }, []);
 
   // Modals
   const [callModal,    setCallModal]    = useState(null);
