@@ -134,7 +134,15 @@ export default function App() {
     const unsubSettings = onSnapshot(doc(db, "settings", "main"), snap => {
       if(snap.exists()) {
         const d = snap.data();
-        if(d.users)     setUsers(d.users);
+        if(d.users) {
+          setUsers(d.users);
+          // Also update currently logged-in user if their data changed
+          setUser(prev => {
+            if(!prev) return prev;
+            const updated = d.users.find(u => u.id === prev.id);
+            return updated ? updated : prev;
+          });
+        }
         if(d.cats)      setCats(d.cats);
         if(d.followUps) setFollowUps(d.followUps);
       }
@@ -155,7 +163,13 @@ export default function App() {
           setSyncing(true);
           const batch = writeBatch(db);
           SEED_INVOICES.forEach(inv => batch.set(doc(db, "invoices", inv.id), inv));
-          batch.set(doc(db, "settings", "main"), { users:INIT_USERS, cats:DEFAULT_CATS, followUps:{} });
+          // Only seed settings if they don't exist yet
+          const settingsSnap = await new Promise(res => {
+            const unsub = onSnapshot(doc(db, "settings", "main"), s => { unsub(); res(s); });
+          });
+          if(!settingsSnap.exists()) {
+            batch.set(doc(db, "settings", "main"), { users:INIT_USERS, cats:DEFAULT_CATS, followUps:{} });
+          }
           await batch.commit();
           setSyncing(false);
         }
@@ -1624,8 +1638,8 @@ function LoginBox({users, onLogin, S, Lbl}) {
         <button style={{...S.btn("#f59e0b","#000"),padding:"11px",fontSize:14,marginTop:4}} onClick={login}>Login →</button>
       </div>
       <div style={{marginTop:18,background:"#0d1520",borderRadius:9,padding:"11px 14px",textAlign:"left"}}>
-        <div style={{fontSize:10,color:"#334155",fontWeight:700,marginBottom:5,textTransform:"uppercase",letterSpacing:.5}}>Demo Logins</div>
-        {users.map(u=><div key={u.id} style={{fontSize:11,color:"#475569",marginBottom:2}}><span style={{color:"#64748b",fontWeight:600}}>{u.role}:</span> {u.username} / {u.password}</div>)}
+        <div style={{fontSize:10,color:"#334155",fontWeight:700,marginBottom:5,textTransform:"uppercase",letterSpacing:.5}}>Contact Admin for Login Help</div>
+        <div style={{fontSize:11,color:"#475569"}}>📞 Contact your manager if you forgot your password.</div>
       </div>
     </div>
   );
