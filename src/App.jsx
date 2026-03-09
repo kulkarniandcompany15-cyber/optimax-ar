@@ -735,24 +735,156 @@ export default function App() {
 
   /* ── WA MODAL ──────────────────────────────────────────────────── */
   const WaModal = ({inv}) => {
-    const bal = inv.originalAmt-inv.paidAmt;
+    const bal = inv.originalAmt - inv.paidAmt;
     const fu = followUps[inv.id];
     const templates = [
-      {l:"Reminder",  m:`Dear ${inv.customer},\n\nYour payment of ${fmt(bal)} for invoice ${inv.invoice} dated ${inv.date} is pending.\n\nKindly arrange payment at the earliest.\n\nThank you!`},
-      {l:"Follow-up", m:`Dear ${inv.customer},\n\nFollowing up on the pending payment of ${fmt(bal)} for ${inv.invoice}.\n\n${fu?.note||"Please confirm payment date."}\n\nThank you!`},
-      {l:"Final",     m:`Dear ${inv.customer},\n\nDespite previous reminders, payment of ${fmt(bal)} for ${inv.invoice} remains unpaid.\n\nImmediate clearance is requested.\n\nThank you!`},
+      {l:"Reminder",  m:`Dear ${inv.customer},\n\nYour payment of ${fmt(bal)} for invoice ${inv.invoice} dated ${inv.date} is pending.\n\nKindly arrange payment at the earliest.\n\nThank you!\nOPTIMAX`},
+      {l:"Follow-up", m:`Dear ${inv.customer},\n\nFollowing up on the pending payment of ${fmt(bal)} for ${inv.invoice}.\n\n${fu?.note||"Please confirm payment date."}\n\nThank you!\nOPTIMAX`},
+      {l:"Final",     m:`Dear ${inv.customer},\n\nDespite previous reminders, payment of ${fmt(bal)} for ${inv.invoice} remains unpaid.\n\nImmediate clearance is requested.\n\nThank you!\nOPTIMAX`},
     ];
-    const [msg,setMsg] = useState(templates[0].m);
+    const [msg, setMsg]           = useState(templates[0].m);
+    const [file, setFile]         = useState(null);
+    const [preview, setPreview]   = useState(null);
+    const [fileType, setFileType] = useState("");
+    const fileRef = useRef();
+
+    const handleFile = (e) => {
+      const f = e.target.files[0];
+      if(!f) return;
+      setFile(f);
+      setFileType(f.type);
+      if(f.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = ev => setPreview(ev.target.result);
+        reader.readAsDataURL(f);
+      } else {
+        setPreview(null);
+      }
+    };
+
+    const removeFile = () => { setFile(null); setPreview(null); setFileType(""); if(fileRef.current) fileRef.current.value=""; };
+
+    const getFileIcon = (type) => {
+      if(type.startsWith("image/"))       return "🖼️";
+      if(type === "application/pdf")      return "📄";
+      if(type.includes("spreadsheet") || type.includes("excel") || type.includes("xlsx")) return "📊";
+      if(type.includes("word") || type.includes("doc")) return "📝";
+      return "📎";
+    };
+
+    const formatSize = (bytes) => {
+      if(bytes < 1024) return bytes + " B";
+      if(bytes < 1024*1024) return (bytes/1024).toFixed(1) + " KB";
+      return (bytes/(1024*1024)).toFixed(1) + " MB";
+    };
+
+    const handleSend = () => {
+      const n = inv.mobile?.replace(/\D/g,"");
+      const url = n ? `https://wa.me/91${n}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+      window.open(url, "_blank");
+      if(file) {
+        showToast(`📎 File "${file.name}" selected — attach it manually in WhatsApp!`, "info");
+      }
+      setWaModal(null);
+    };
+
     return (
       <div style={S.overlay} onClick={()=>setWaModal(null)}>
-        <div style={{...S.modal,maxWidth:440}} onClick={e=>e.stopPropagation()}>
-          <div style={{fontWeight:800,fontSize:16,color:"#25d366",marginBottom:4}}>💬 WhatsApp</div>
-          <div style={{fontSize:12,color:"#475569",marginBottom:10}}>{inv.customer} · {inv.mobile?`+91 ${inv.mobile}`:"⚠️ No mobile"}</div>
-          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>{templates.map(t=><button key={t.l} style={S.btn("#1f2d3d","#94a3b8","5px 10px",11)} onClick={()=>setMsg(t.m)}>{t.l}</button>)}</div>
-          <textarea rows={7} style={{...S.inp,resize:"vertical"}} value={msg} onChange={e=>setMsg(e.target.value)}/>
-          <div style={{display:"flex",gap:9,marginTop:12}}>
-            <button style={S.btn("#25d366")} onClick={()=>{const n=inv.mobile?.replace(/\D/g,"");window.open(n?`https://wa.me/91${n}?text=${encodeURIComponent(msg)}`:`https://wa.me/?text=${encodeURIComponent(msg)}`,"_blank");setWaModal(null);}}>📲 Send</button>
+        <div style={{...S.modal, maxWidth:480, maxHeight:"90vh", overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+
+          {/* Header */}
+          <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:4}}>
+            <div style={{fontSize:22}}>💬</div>
+            <div>
+              <div style={{fontWeight:800, fontSize:16, color:"#25d366"}}>WhatsApp Message</div>
+              <div style={{fontSize:11, color:"#475569"}}>{inv.customer} · {inv.mobile ? `+91 ${inv.mobile}` : "⚠️ No mobile number"}</div>
+            </div>
+          </div>
+
+          {/* Templates */}
+          <div style={{display:"flex", gap:6, marginBottom:10, flexWrap:"wrap", marginTop:10}}>
+            {templates.map(t => (
+              <button key={t.l} style={S.btn("#1f2d3d","#94a3b8","5px 10px",11)} onClick={()=>setMsg(t.m)}>{t.l}</button>
+            ))}
+          </div>
+
+          {/* Message Box */}
+          <textarea rows={6} style={{...S.inp, resize:"vertical", fontSize:12}} value={msg} onChange={e=>setMsg(e.target.value)}/>
+
+          {/* ── ATTACHMENT SECTION ── */}
+          <div style={{marginTop:12, background:"#0d1520", borderRadius:10, padding:12, border:"1px solid #1f2d3d"}}>
+            <div style={{fontWeight:700, fontSize:12, color:"#94a3b8", marginBottom:8}}>📎 Attach File (Optional)</div>
+
+            {/* File not selected yet */}
+            {!file && (
+              <div
+                style={{border:"2px dashed #1f2d3d", borderRadius:10, padding:"18px 12px", textAlign:"center", cursor:"pointer", transition:"border 0.2s"}}
+                onClick={()=>fileRef.current?.click()}
+                onDragOver={e=>{e.preventDefault(); e.currentTarget.style.borderColor="#25d366";}}
+                onDragLeave={e=>{e.currentTarget.style.borderColor="#1f2d3d";}}
+                onDrop={e=>{e.preventDefault(); e.currentTarget.style.borderColor="#1f2d3d"; const f=e.dataTransfer.files[0]; if(f){const ev={target:{files:[f]}};handleFile(ev);}}}
+              >
+                <div style={{fontSize:28, marginBottom:6}}>📂</div>
+                <div style={{fontSize:12, color:"#64748b", marginBottom:4}}>Click to select or drag & drop file here</div>
+                <div style={{fontSize:10, color:"#334155"}}>Supports: Images, PDF, Excel, Word, Any file</div>
+                <input ref={fileRef} type="file" accept="*/*" style={{display:"none"}} onChange={handleFile}/>
+              </div>
+            )}
+
+            {/* File selected — show preview */}
+            {file && (
+              <div style={{background:"#111827", borderRadius:10, padding:10, border:"1px solid #25d36633"}}>
+
+                {/* Image preview */}
+                {preview && (
+                  <div style={{marginBottom:10, textAlign:"center"}}>
+                    <img src={preview} alt="preview" style={{maxWidth:"100%", maxHeight:180, borderRadius:8, objectFit:"contain", border:"1px solid #1f2d3d"}}/>
+                  </div>
+                )}
+
+                {/* Non-image file icon */}
+                {!preview && (
+                  <div style={{textAlign:"center", padding:"16px 0", marginBottom:8}}>
+                    <div style={{fontSize:48}}>{getFileIcon(fileType)}</div>
+                  </div>
+                )}
+
+                {/* File info */}
+                <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:8}}>
+                  <div style={{flex:1, overflow:"hidden"}}>
+                    <div style={{fontSize:12, fontWeight:700, color:"#e2e8f0", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>
+                      {getFileIcon(fileType)} {file.name}
+                    </div>
+                    <div style={{fontSize:10, color:"#475569", marginTop:2}}>{formatSize(file.size)}</div>
+                  </div>
+                  <button
+                    style={{background:"#ef444422", border:"1px solid #ef444444", color:"#ef4444", borderRadius:6, padding:"4px 8px", cursor:"pointer", fontSize:11, fontWeight:700, whiteSpace:"nowrap"}}
+                    onClick={removeFile}
+                  >✕ Remove</button>
+                </div>
+
+                {/* Instruction */}
+                <div style={{marginTop:10, background:"#f59e0b11", border:"1px solid #f59e0b33", borderRadius:8, padding:"8px 10px", fontSize:11, color:"#f59e0b"}}>
+                  ⚠️ After clicking Send — WhatsApp will open. Click the 📎 attachment icon in WhatsApp to attach this file and send it.
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div style={{display:"flex", gap:9, marginTop:14}}>
+            <button
+              style={{...S.btn("#25d366"), flex:1, fontSize:14, padding:11}}
+              onClick={handleSend}
+            >
+              📲 {file ? "Send Message + Open WhatsApp" : "Send via WhatsApp"}
+            </button>
             <button style={S.btn("#1f2d3d")} onClick={()=>setWaModal(null)}>Cancel</button>
+          </div>
+
+          {/* Help note */}
+          <div style={{marginTop:10, fontSize:10, color:"#334155", textAlign:"center"}}>
+            💡 WhatsApp will open with your message pre-filled. Attach the file there and hit send.
           </div>
         </div>
       </div>
