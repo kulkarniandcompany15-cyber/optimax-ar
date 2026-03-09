@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from "firebase/firestore";
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, getDoc } from "firebase/firestore";
 
 /* ─── FIREBASE CONFIG ─────────────────────────────────────────────── */
 const firebaseConfig = {
@@ -112,6 +112,14 @@ export default function App() {
   const [fuPopupDismissed, setFuPopupDismissed] = useState(false);
   const [dbLoaded, setDbLoaded]   = useState(false);
   const [syncing,  setSyncing]    = useState(false);
+  const [toasts,   setToasts]     = useState([]);
+
+  /* ── TOAST HELPER ──────────────────────────────────────────────── */
+  const showToast = (message, type="success") => {
+    const id = Date.now();
+    setToasts(p => [...p, {id, message, type}]);
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3500);
+  };
 
   /* ── FIREBASE REAL-TIME LISTENERS ──────────────────────────────── */
   useEffect(() => {
@@ -156,20 +164,22 @@ export default function App() {
     if(!dbLoaded) return;
     const seedFirebase = async () => {
       try {
-        const snap = await new Promise(res => {
+        // Always ensure settings document exists in Firebase
+        const settingsSnap = await getDoc(doc(db, "settings", "main"));
+        if(!settingsSnap.exists()) {
+          setSyncing(true);
+          await setDoc(doc(db, "settings", "main"), { users:INIT_USERS, cats:DEFAULT_CATS, followUps:{} });
+          setSyncing(false);
+        }
+
+        // Seed invoices only if collection is empty
+        const invSnap = await new Promise(res => {
           const unsub = onSnapshot(collection(db, "invoices"), s => { unsub(); res(s); });
         });
-        if(snap.empty) {
+        if(invSnap.empty) {
           setSyncing(true);
           const batch = writeBatch(db);
           SEED_INVOICES.forEach(inv => batch.set(doc(db, "invoices", inv.id), inv));
-          // Only seed settings if they don't exist yet
-          const settingsSnap = await new Promise(res => {
-            const unsub = onSnapshot(doc(db, "settings", "main"), s => { unsub(); res(s); });
-          });
-          if(!settingsSnap.exists()) {
-            batch.set(doc(db, "settings", "main"), { users:INIT_USERS, cats:DEFAULT_CATS, followUps:{} });
-          }
           await batch.commit();
           setSyncing(false);
         }
@@ -262,7 +272,10 @@ export default function App() {
     catch(e) { console.error("Sync error:", e); }
   };
   const syncSettings = async (updates) => {
-    try { await setDoc(doc(db, "settings", "main"), updates, {merge:true}); }
+    try {
+      // Use merge:true so it creates doc if missing OR updates existing
+      await setDoc(doc(db, "settings", "main"), updates, {merge:true});
+    }
     catch(e) { console.error("Settings sync error:", e); }
   };
   const syncCallLog = async (log) => {
@@ -301,8 +314,13 @@ export default function App() {
         syncInvoice(updated);
         return updated;
       }));
+      showToast("Invoice marked as Paid! 🎉", "success");
+    } else if(data.status === "partial" && data.partialAmt) {
+      addPaymentToInv(data.invoiceId, data.partialAmt, data.payMode||"Cash", data.notes);
+      showToast(`Payment of ₹${Number(data.partialAmt).toLocaleString("en-IN")} recorded!`, "success");
+    } else {
+      showToast("Call logged successfully!", "success");
     }
-    if(data.status === "partial" && data.partialAmt) addPaymentToInv(data.invoiceId, data.partialAmt, data.payMode||"Cash", data.notes);
     setCallModal(null);
   };
 
@@ -314,6 +332,7 @@ export default function App() {
       syncInvoice(updated);
       return updated;
     }));
+    showToast("Payment updated!", "success");
     setEditPayModal(null);
   };
 
@@ -325,6 +344,7 @@ export default function App() {
       syncInvoice(updated);
       return updated;
     }));
+    showToast("Payment deleted!", "warning");
     setEditPayModal(null);
   };
 
@@ -336,10 +356,12 @@ export default function App() {
         syncInvoice(updated);
         return updated;
       }));
+      showToast("Invoice updated!", "success");
     } else {
       const newInv = {...data, id:"i"+Date.now(), paidAmt:0, payments:[], assignedTo:"", originalAmt:Number(data.originalAmt)};
       setInvoices(p => [...p, newInv]);
       syncInvoice(newInv);
+      showToast("New invoice added!", "success");
     }
     setAddInvModal(false); setEditInvModal(null);
   };
@@ -348,6 +370,7 @@ export default function App() {
     if(window.confirm("Delete this invoice?")) {
       setInvoices(p => p.filter(i => i.id !== id));
       try { await deleteDoc(doc(db, "invoices", id)); } catch(e) { console.error(e); }
+      showToast("Invoice deleted!", "warning");
     }
   };
 
@@ -1160,7 +1183,7 @@ export default function App() {
             {users.map(u=>(
               <div key={u.id} style={{background:"#0d1520",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
                 {editingUser===u.id?(
-                  <EditUserRow u={u} users={users} setUsers={setUsers} syncSettings={syncSettings} onDone={()=>setEditingUser(null)} S={S} Lbl={Lbl}/>
+                  <EditUserRow u={u} users={users} setUsers={setUsers} syncSettings={syncSettings} showToast={showToast} onDone={()=>setEditingUser(null)} S={S} Lbl={Lbl}/>
                 ):(
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div>
@@ -1520,6 +1543,25 @@ export default function App() {
         .print-header { display: none; }
       `}</style>
       <FuPopup/>
+
+      {/* ── TOAST NOTIFICATIONS ── */}
+      <div style={{position:"fixed",top:20,right:20,zIndex:9999,display:"flex",flexDirection:"column",gap:10,pointerEvents:"none"}}>
+        {toasts.map(t => (
+          <div key={t.id} style={{
+            background: t.type==="success"?"#10b981":t.type==="error"?"#ef4444":t.type==="warning"?"#f59e0b":"#6366f1",
+            color:"#fff", borderRadius:12, padding:"14px 20px", fontSize:13, fontWeight:700,
+            boxShadow:"0 8px 32px rgba(0,0,0,0.4)", minWidth:260, maxWidth:340,
+            display:"flex", alignItems:"center", gap:10,
+            animation:"slideIn 0.3s ease",
+          }}>
+            <span style={{fontSize:20}}>
+              {t.type==="success"?"✅":t.type==="error"?"❌":t.type==="warning"?"⚠️":"ℹ️"}
+            </span>
+            <span>{t.message}</span>
+          </div>
+        ))}
+      </div>
+      <style>{`@keyframes slideIn{from{transform:translateX(120px);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
       {/* Header */}
       <div className="no-print" style={{background:"#0d1520",borderBottom:"1px solid #1f2d3d",padding:"11px 22px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div><div style={{fontWeight:900,fontSize:18,color:"#f59e0b"}}>💼 OPTIMAX-AR Manager</div><div style={{fontSize:10,color:"#334155"}}>Account Receivable · 2025–26</div></div>
@@ -1589,16 +1631,16 @@ export default function App() {
 }
 
 /* ── EDIT USER ROW (inline) ──────────────────────────────────────── */
-function EditUserRow({u, users, setUsers, syncSettings, onDone, S, Lbl}) {
+function EditUserRow({u, users, setUsers, syncSettings, showToast, onDone, S, Lbl}) {
   const [form,setForm] = useState({...u});
   const set = k => e => setForm(p=>({...p,[k]:e.target.value}));
   const handleSave = () => {
-    if(!form.name||!form.username||!form.password) return alert("All fields required!");
+    if(!form.name||!form.username||!form.password) return showToast("All fields are required!", "error");
     const updUsers = users.map(x => x.id===u.id ? form : x);
     setUsers(updUsers);
-    syncSettings({users: updUsers}); // ← saves to Firebase
+    syncSettings({users: updUsers});
     onDone();
-    alert("✅ User updated successfully!");
+    showToast(`Password changed for ${form.name}!`, "success");
   };
   return (
     <div>
