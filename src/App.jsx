@@ -71,10 +71,7 @@ const SEED_INVOICES = [
 ];
 
 const INIT_USERS = [
-  { id:"u1", name:"Owner",      username:"owner",      password:"owner123", role:"owner",      color:"#f59e0b" },
-  { id:"u2", name:"Accountant", username:"accountant", password:"acc123",   role:"accountant", color:"#6366f1" },
-  { id:"u3", name:"Ajay",       username:"ajay",       password:"ajay123",  role:"staff",      color:"#10b981" },
-  { id:"u4", name:"Ganesh Sir", username:"ganesh",     password:"ganesh123",role:"staff",      color:"#0ea5e9" },
+  { id:"u1", name:"Owner", username:"owner", password:"Osho@1990", role:"owner", color:"#f59e0b" },
 ];
 
 const DEFAULT_CATS = ["Daily","Shop","ProShop","Executive","Hard Recovery"];
@@ -167,9 +164,20 @@ export default function App() {
         // Always ensure settings document exists in Firebase
         const settingsSnap = await getDoc(doc(db, "settings", "main"));
         if(!settingsSnap.exists()) {
+          // First time — create with only owner account
           setSyncing(true);
-          await setDoc(doc(db, "settings", "main"), { users:INIT_USERS, cats:DEFAULT_CATS, followUps:{} });
+          await setDoc(doc(db, "settings", "main"), { users:INIT_USERS, cats:DEFAULT_CATS, followUps:{}, _version:2 });
           setSyncing(false);
+        } else {
+          // Check if old version (has old users) — force reset to new clean users
+          const existing = settingsSnap.data();
+          const hasOldUsers = existing.users?.some(u => ["owner123","acc123","ajay123","ganesh123"].includes(u.password));
+          if(hasOldUsers || !existing._version) {
+            setSyncing(true);
+            // Keep any users that were manually added with new passwords, but reset defaults
+            await setDoc(doc(db, "settings", "main"), { users:INIT_USERS, cats:existing.cats||DEFAULT_CATS, followUps:existing.followUps||{}, _version:2 });
+            setSyncing(false);
+          }
         }
 
         // Seed invoices only if collection is empty
