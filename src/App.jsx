@@ -451,7 +451,8 @@ export default function App() {
   /* ── EXPORT FUNCTIONS ──────────────────────────────────────────── */
   const downloadCSV = (rows, filename) => {
     const csv = rows.map(r => r.map(c => `"${String(c??'').replace(/"/g,'""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], {type:"text/csv"});
+    const BOM = "﻿";
+    const blob = new Blob([BOM + csv], {type:"text/csv;charset=utf-8"});
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
   };
 
