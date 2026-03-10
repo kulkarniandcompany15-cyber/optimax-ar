@@ -451,8 +451,7 @@ export default function App() {
   /* ── EXPORT FUNCTIONS ──────────────────────────────────────────── */
   const downloadCSV = (rows, filename) => {
     const csv = rows.map(r => r.map(c => `"${String(c??'').replace(/"/g,'""')}"`).join(",")).join("\n");
-    const BOM = "﻿";
-    const blob = new Blob([BOM + csv], {type:"text/csv;charset=utf-8"});
+    const blob = new Blob([csv], {type:"text/csv"});
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
   };
 
@@ -1154,15 +1153,17 @@ export default function App() {
   );
 
   const InvoicesTab = () => {
-    const [search,setSearch]=useState(""); const [fCat,setFCat]=useState("all"); const [fAge,setFAge]=useState("all"); const [fUser,setFUser]=useState("all");
+    const [search,setSearch]=useState(""); const [fCat,setFCat]=useState("all"); const [fAge,setFAge]=useState("all"); const [fUser,setFUser]=useState("all"); const [fFrom,setFFrom]=useState(""); const [fTo,setFTo]=useState("");
     const filtered=useMemo(()=>{
       let d=[...myPending];
       if(search)d=d.filter(i=>i.customer.toLowerCase().includes(search.toLowerCase())||i.invoice.toLowerCase().includes(search.toLowerCase()));
       if(fCat!=="all")d=d.filter(i=>i.category===fCat);
       if(fAge!=="all")d=d.filter(i=>{const days=daysAgo(i.date);if(fAge==="0-30")return days<=30;if(fAge==="31-60")return days>30&&days<=60;if(fAge==="61-90")return days>60&&days<=90;return days>90;});
       if(fUser!=="all")d=d.filter(i=>i.assignedTo===fUser||(fUser==="unassigned"&&!i.assignedTo));
+      if(fFrom)d=d.filter(i=>parseDt(i.date)>=parseDt(fromInp(fFrom)));
+      if(fTo)d=d.filter(i=>parseDt(i.date)<=parseDt(fromInp(fTo)));
       return d;
-    },[search,fCat,fAge,fUser]);
+    },[search,fCat,fAge,fUser,fFrom,fTo]);
     return (
       <div>
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
@@ -1170,6 +1171,9 @@ export default function App() {
           <select value={fCat} onChange={e=>setFCat(e.target.value)} style={{...S.inp,width:120}}><option value="all">All Categories</option>{cats.map(c=><option key={c}>{c}</option>)}</select>
           <select value={fAge} onChange={e=>setFAge(e.target.value)} style={{...S.inp,width:110}}><option value="all">All Aging</option><option value="0-30">0-30d</option><option value="31-60">31-60d</option><option value="61-90">61-90d</option><option value="90+">90d+</option></select>
           {canManage&&<select value={fUser} onChange={e=>setFUser(e.target.value)} style={{...S.inp,width:130}}><option value="all">All Staff</option><option value="unassigned">Unassigned</option>{users.filter(u=>u.role!=="owner").map(u=><option key={u.id}>{u.name}</option>)}</select>}
+          <input type="date" value={fFrom} onChange={e=>setFFrom(e.target.value)} style={{...S.inp,width:130}} title="From Date"/>
+          <input type="date" value={fTo} onChange={e=>setFTo(e.target.value)} style={{...S.inp,width:130}} title="To Date"/>
+          {(fFrom||fTo)&&<button style={S.btn("#475569","#fff","5px 8px",11)} onClick={()=>{setFFrom("");setFTo("");}}>✕ Clear</button>}
           <button style={S.btn("#10b981")} onClick={()=>setAddInvModal(true)}>+ Add</button>
           <button style={S.btn("#6366f1")} onClick={()=>setImportModal(true)}>📥 Import</button>
           <button style={S.btn("#0ea5e9")} onClick={exportPendingCSV}>📤 Export</button>
@@ -1214,14 +1218,16 @@ export default function App() {
   };
 
   const CustomersTab = () => {
-    const [search,setSearch]=useState(""); const [fCat,setFCat]=useState("all"); const [fUser,setFUser]=useState("all");
+    const [search,setSearch]=useState(""); const [fCat,setFCat]=useState("all"); const [fUser,setFUser]=useState("all"); const [fFrom,setFFrom]=useState(""); const [fTo,setFTo]=useState("");
     const filtered=useMemo(()=>{
       let d=[...custView];
       if(search)d=d.filter(c=>c.customer.toLowerCase().includes(search.toLowerCase()));
       if(fCat!=="all")d=d.filter(c=>c.invoices.some(i=>i.category===fCat));
       if(fUser!=="all")d=d.filter(c=>c.assignedTo===fUser||(fUser==="unassigned"&&!c.assignedTo));
+      if(fFrom)d=d.filter(c=>parseDt(c.oldestDate)>=parseDt(fromInp(fFrom)));
+      if(fTo)d=d.filter(c=>parseDt(c.oldestDate)<=parseDt(fromInp(fTo)));
       return d;
-    },[search,fCat,fUser]);
+    },[search,fCat,fUser,fFrom,fTo]);
     return (
       <div>
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
@@ -1229,6 +1235,9 @@ export default function App() {
           <select value={fCat} onChange={e=>setFCat(e.target.value)} style={{...S.inp,width:130}}><option value="all">All Categories</option>{cats.map(c=><option key={c}>{c}</option>)}</select>
           {canManage&&<select value={fUser} onChange={e=>setFUser(e.target.value)} style={{...S.inp,width:130}}><option value="all">All Staff</option><option value="unassigned">Unassigned</option>{users.filter(u=>u.role!=="owner").map(u=><option key={u.id}>{u.name}</option>)}</select>}
           {canManage&&<button style={S.btn("#6366f1")} onClick={()=>setImportCustModal(true)}>📥 Import Customers</button>}
+          <input type="date" value={fFrom} onChange={e=>setFFrom(e.target.value)} style={{...S.inp,width:130}} title="From Date"/>
+          <input type="date" value={fTo} onChange={e=>setFTo(e.target.value)} style={{...S.inp,width:130}} title="To Date"/>
+          {(fFrom||fTo)&&<button style={S.btn("#475569","#fff","5px 8px",11)} onClick={()=>{setFFrom("");setFTo("");}}>✕ Clear</button>}
           <button style={S.btn("#0ea5e9")} onClick={exportCustomersCSV}>📤 Export</button>
           <div style={{marginLeft:"auto",fontSize:11,color:"#475569"}}>{filtered.length} customers · {fmt(filtered.reduce((s,c)=>s+c.totalDue,0))}</div>
         </div>
@@ -1273,12 +1282,20 @@ export default function App() {
   };
 
   const CallLogTab = () => {
-    const [tm,setTm]=useState("all");
-    const filtered=callLogs.filter(l=>tm==="all"||l.calledBy===tm).slice(0,80);
+    const [tm,setTm]=useState("all"); const [fFrom,setFFrom]=useState(""); const [fTo,setFTo]=useState("");
+    const filtered=callLogs.filter(l=>{
+      if(tm!=="all"&&l.calledBy!==tm) return false;
+      if(fFrom&&new Date(l.timestamp)<new Date(fFrom)) return false;
+      if(fTo&&new Date(l.timestamp)>new Date(fTo+"T23:59:59")) return false;
+      return true;
+    }).slice(0,80);
     return (
       <div>
         <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center"}}>
           <select value={tm} onChange={e=>setTm(e.target.value)} style={{...S.inp,width:180}}><option value="all">All Team</option>{users.map(u=><option key={u.id}>{u.name}</option>)}</select>
+          <input type="date" value={fFrom} onChange={e=>setFFrom(e.target.value)} style={{...S.inp,width:130}} title="From Date"/>
+          <input type="date" value={fTo} onChange={e=>setFTo(e.target.value)} style={{...S.inp,width:130}} title="To Date"/>
+          {(fFrom||fTo)&&<button style={S.btn("#475569","#fff","5px 8px",11)} onClick={()=>{setFFrom("");setFTo("");}}>✕ Clear</button>}
           <button style={S.btn("#0ea5e9")} onClick={exportCallLogCSV}>📤 Export</button>
           <div style={{marginLeft:"auto",fontSize:11,color:"#475569"}}>{filtered.length} logs</div>
         </div>
