@@ -399,9 +399,14 @@ export default function App() {
 
   const deleteInvoice = async id => {
     if(window.confirm("Delete this invoice?")) {
-      setInvoices(p => p.filter(i => i.id !== id));
-      try { await deleteDoc(doc(db, "invoices", id)); } catch(e) { console.error(e); }
-      showToast("Invoice deleted!", "warning");
+      try {
+        await deleteDoc(doc(db, "invoices", id));
+        setInvoices(p => p.filter(i => i.id !== id));
+        showToast("Invoice deleted!", "success");
+      } catch(e) {
+        console.error(e);
+        showToast("Delete failed! Check internet connection.", "error");
+      }
     }
   };
 
