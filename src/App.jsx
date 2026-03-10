@@ -102,7 +102,7 @@ const roleBadgeColor = r => r==="owner"?"#f59e0b":r==="accountant"?"#6366f1":"#1
 export default function App() {
   const [user,      setUser]      = useState(null);
   const [users,     setUsers]     = useState(INIT_USERS);
-  const [invoices,  setInvoices]  = useState(SEED_INVOICES);
+  const [invoices,  setInvoices]  = useState([]);
   const [callLogs,  setCallLogs]  = useState([]);
   const [followUps, setFollowUps] = useState({});
   const [cats,      setCats]      = useState(DEFAULT_CATS);
