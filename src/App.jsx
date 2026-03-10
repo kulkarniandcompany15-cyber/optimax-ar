@@ -1168,8 +1168,8 @@ export default function App() {
       if(fCat!=="all")d=d.filter(i=>i.category===fCat);
       if(fAge!=="all")d=d.filter(i=>{const days=daysAgo(i.date);if(fAge==="0-30")return days<=30;if(fAge==="31-60")return days>30&&days<=60;if(fAge==="61-90")return days>60&&days<=90;return days>90;});
       if(fUser!=="all")d=d.filter(i=>i.assignedTo===fUser||(fUser==="unassigned"&&!i.assignedTo));
-      if(fFrom)d=d.filter(i=>{const dt=parseDt(i.date);return dt&&dt>=new Date(fFrom);});
-      if(fTo)d=d.filter(i=>{const dt=parseDt(i.date);return dt&&dt<=new Date(fTo+"T23:59:59");});
+      if(fFrom){const[fy,fm,fd]=fFrom.split("-");const frD=new Date(fy,fm-1,fd);d=d.filter(i=>{const dt=parseDt(i.date);return dt&&dt>=frD;});}
+      if(fTo){const[ty,tm2,td]=fTo.split("-");const toD=new Date(ty,tm2-1,td,23,59,59);d=d.filter(i=>{const dt=parseDt(i.date);return dt&&dt<=toD;});}
       return d;
     },[search,fCat,fAge,fUser,fFrom,fTo]);
     return (
@@ -1232,8 +1232,8 @@ export default function App() {
       if(search)d=d.filter(c=>c.customer.toLowerCase().includes(search.toLowerCase()));
       if(fCat!=="all")d=d.filter(c=>c.invoices.some(i=>i.category===fCat));
       if(fUser!=="all")d=d.filter(c=>c.assignedTo===fUser||(fUser==="unassigned"&&!c.assignedTo));
-      if(fFrom)d=d.filter(c=>{const dt=parseDt(c.oldestDate);return dt&&dt>=new Date(fFrom);});
-      if(fTo)d=d.filter(c=>{const dt=parseDt(c.oldestDate);return dt&&dt<=new Date(fTo+"T23:59:59");});
+      if(fFrom){const[fy,fm,fd]=fFrom.split("-");const frD=new Date(fy,fm-1,fd);d=d.filter(c=>{const dt=parseDt(c.oldestDate);return dt&&dt>=frD;});}
+      if(fTo){const[ty,tm2,td]=fTo.split("-");const toD=new Date(ty,tm2-1,td,23,59,59);d=d.filter(c=>{const dt=parseDt(c.oldestDate);return dt&&dt<=toD;});}
       return d;
     },[search,fCat,fUser,fFrom,fTo]);
     return (
