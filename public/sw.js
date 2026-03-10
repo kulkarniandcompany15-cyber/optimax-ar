@@ -1,4 +1,4 @@
-const VERSION = 'v2';
+const VERSION = 'v3';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(
@@ -18,6 +18,3 @@ self.addEventListener('fetch', e => {
     }).catch(() => caches.match(e.request))
   );
 });
-```
-
----
