@@ -416,7 +416,7 @@ export default function App() {
     setAssignModal(null);
   };
 
-  const importInvoicesCSV = text => {
+  const importInvoicesCSV = async text => {
     try {
       const lines = text.trim().split("\n");
       const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/"/g,""));
@@ -425,13 +425,17 @@ export default function App() {
         const obj = {}; headers.forEach((h,idx) => obj[h] = cols[idx]||"");
         return { id:"imp"+Date.now()+i, invoice:obj.invoice||obj["invoice#"]||"IMP-"+(i+1), date:obj.date||TODAY_STR, customer:obj.customer||obj["customer name"]||"Unknown", mobile:obj.mobile||obj.phone||"", category:obj.category||cats[0], originalAmt:Number(obj.amount||obj.balance||0), paidAmt:0, payments:[], assignedTo:"" };
       }).filter(i => i.customer !== "Unknown" && i.originalAmt > 0);
-      setInvoices(p => [...p, ...newInvs]);
+      setSyncing(true);
+      const batch = writeBatch(db);
+      newInvs.forEach(inv => batch.set(doc(db, "invoices", inv.id), inv));
+      await batch.commit();
+      setSyncing(false);
       setImportModal(false);
-      alert(`✅ Imported ${newInvs.length} invoices!`);
-    } catch(e) { alert("Error parsing CSV. Check format."); }
+      showToast(`✅ Imported ${newInvs.length} invoices successfully!`, "success");
+    } catch(e) { setSyncing(false); showToast("Import failed! Check file format.", "error"); }
   };
 
-  const importCustomersCSV = text => {
+  const importCustomersCSV = async text => {
     try {
       const lines = text.trim().split("\n");
       const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/"/g,""));
@@ -442,10 +446,14 @@ export default function App() {
         if(!cust) return null;
         return { id:"cust"+Date.now()+i, invoice:"IMP-CUST-"+(i+1), date:obj.date||TODAY_STR, customer:cust, mobile:obj.mobile||obj.phone||"", category:obj.category||cats[0], originalAmt:Number(obj.amount||obj.balance||obj.outstanding||0), paidAmt:0, payments:[], assignedTo:"" };
       }).filter(Boolean).filter(i => i.originalAmt > 0);
-      setInvoices(p => [...p, ...newInvs]);
+      setSyncing(true);
+      const batch = writeBatch(db);
+      newInvs.forEach(inv => batch.set(doc(db, "invoices", inv.id), inv));
+      await batch.commit();
+      setSyncing(false);
       setImportCustModal(false);
-      alert(`✅ Imported ${newInvs.length} customer records!`);
-    } catch(e) { alert("Error parsing CSV."); }
+      showToast(`✅ Imported ${newInvs.length} customer records successfully!`, "success");
+    } catch(e) { setSyncing(false); showToast("Import failed! Check file format.", "error"); }
   };
 
   /* ── EXPORT FUNCTIONS ──────────────────────────────────────────── */
