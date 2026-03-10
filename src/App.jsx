@@ -91,7 +91,7 @@ const TODAY = new Date(); TODAY.setHours(0,0,0,0);
 const _td = TODAY; const _dd = String(_td.getDate()).padStart(2,"0"), _mm = String(_td.getMonth()+1).padStart(2,"0"), _yyyy = _td.getFullYear();
 const TODAY_STR = `${_dd}/${_mm}/${_yyyy}`;
 const fmt  = n => "₹" + Number(n||0).toLocaleString("en-IN");
-const parseDt  = s => { if(!s) return null; const[d,m,y]=s.split("/"); return new Date(`${y}-${m}-${d}`); };
+const parseDt  = s => { if(!s) return null; const p=s.replace(/-/g,"/").split("/"); if(p.length<3) return null; return new Date(Number(p[2]),Number(p[1])-1,Number(p[0])); };
 const daysAgo  = s => { const d=parseDt(s); if(!d) return 0; return Math.floor((TODAY-d)/(864e5)); };
 const fromInp  = s => { if(!s) return ""; const[y,m,d]=s.split("-"); return `${d}/${m}/${y}`; };
 const toInp    = s => { if(!s) return ""; const[d,m,y]=s.split("/"); return `${y}-${m}-${d}`; };
@@ -701,7 +701,7 @@ export default function App() {
     return (
       <div style={S.overlay} onClick={()=>setEditPayModal(null)}>
         <div style={{...S.modal,maxWidth:360}} onClick={e=>e.stopPropagation()}>
-          <div style={{fontWeight:800,fontSize:16,color:"#6366f1",marginBottom:12}}>✏️ Edit Payment</div>
+          <div style={{fontWeight:800,fontSize:16,color:"#6366f1",marginBottom:12}}>✏` Edit Payment</div>
           <div style={{display:"grid",gap:10}}>
             <div><Lbl c="Amount"/><input type="number" style={S.inp} value={amt} onChange={e=>setAmt(e.target.value)}/></div>
             <div><Lbl c="Mode"/><select style={S.inp} value={mode} onChange={e=>setMode(e.target.value)}>{PAY_MODES.map(m=><option key={m}>{m}</option>)}</select></div>
@@ -723,7 +723,7 @@ export default function App() {
     return (
       <div style={S.overlay} onClick={()=>{setAddInvModal(false);setEditInvModal(null);}}>
         <div style={S.modal} onClick={e=>e.stopPropagation()}>
-          <div style={{fontWeight:800,fontSize:16,color:existing?"#6366f1":"#10b981",marginBottom:14}}>{existing?"✏️ Edit Invoice":"➕ Add Invoice"}</div>
+          <div style={{fontWeight:800,fontSize:16,color:existing?"#6366f1":"#10b981",marginBottom:14}}>{existing?"✏` Edit Invoice":"➕ Add Invoice"}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <div><Lbl c="Invoice #"/><input style={S.inp} value={form.invoice} onChange={set("invoice")} placeholder="INV-XXXXX"/></div>
             <div><Lbl c="Date"/><input type="date" style={S.inp} value={toInp(form.date)} onChange={e=>setForm(p=>({...p,date:fromInp(e.target.value)}))}/></div>
@@ -984,7 +984,7 @@ export default function App() {
                     {(inv.payments||[]).map(p=>(
                       <div key={p.id} style={{fontSize:11,color:"#10b981",display:"flex",alignItems:"center",gap:6,marginTop:2}}>
                         💰 {fmt(p.amount)} · {p.mode} · {p.date}
-                        <button style={S.btn("#1f2d3d","#6366f1","2px 6px",10)} onClick={()=>setEditPayModal({inv,payment:p})}>✏️</button>
+                        <button style={S.btn("#1f2d3d","#6366f1","2px 6px",10)} onClick={()=>setEditPayModal({inv,payment:p})}>✏`</button>
                       </div>
                     ))}
                   </div>
@@ -993,7 +993,7 @@ export default function App() {
                     <div style={{display:"flex",gap:5,marginTop:5}}>
                       <button style={S.btn("#f59e0b","#000","5px 7px",11)} onClick={()=>{setCustDetail(null);setCallModal(inv);}}>📞</button>
                       <button style={S.btn("#10b981","#fff","5px 7px",11)} onClick={()=>{setCustDetail(null);setPayModal(inv);}}>💰</button>
-                      <button style={S.btn("#6366f1","#fff","5px 7px",11)} onClick={()=>{setCustDetail(null);setEditInvModal(inv);}}>✏️</button>
+                      <button style={S.btn("#6366f1","#fff","5px 7px",11)} onClick={()=>{setCustDetail(null);setEditInvModal(inv);}}>✏`</button>
                     </div>
                   </div>
                 </div>
@@ -1065,7 +1065,7 @@ export default function App() {
                   <td style={S.td}><span style={S.bdg("#3b82f6")}>{p.mode}</span></td>
                   <td style={S.td}><span style={{color:"#64748b"}}>{p.addedBy}</span></td>
                   <td style={S.td}><span style={{color:"#475569"}}>{p.time}</span></td>
-                  <td style={S.td}><button style={S.btn("#1f2d3d","#94a3b8","4px 8px",11)} onClick={()=>{const inv=invoices.find(i=>i.id===p.invId);const payment=(inv?.payments||[]).find(x=>x.id===p.id);if(inv&&payment)setEditPayModal({inv,payment});}}>✏️</button></td>
+                  <td style={S.td}><button style={S.btn("#1f2d3d","#94a3b8","4px 8px",11)} onClick={()=>{const inv=invoices.find(i=>i.id===p.invId);const payment=(inv?.payments||[]).find(x=>x.id===p.id);if(inv&&payment)setEditPayModal({inv,payment});}}>✏`</button></td>
                 </tr>
               ))}</tbody>
             </table>
@@ -1168,8 +1168,8 @@ export default function App() {
       if(fCat!=="all")d=d.filter(i=>i.category===fCat);
       if(fAge!=="all")d=d.filter(i=>{const days=daysAgo(i.date);if(fAge==="0-30")return days<=30;if(fAge==="31-60")return days>30&&days<=60;if(fAge==="61-90")return days>60&&days<=90;return days>90;});
       if(fUser!=="all")d=d.filter(i=>i.assignedTo===fUser||(fUser==="unassigned"&&!i.assignedTo));
-      if(fFrom){const[fy,fm,fd]=fFrom.split("-");const frD=new Date(Number(fy),Number(fm)-1,Number(fd));d=d.filter(i=>{const dt=parseDt(i.date);return dt&&dt>=frD;});}
-      if(fTo){const[ty,tm2,td]=fTo.split("-");const toD=new Date(Number(ty),Number(tm2)-1,Number(td),23,59,59);d=d.filter(i=>{const dt=parseDt(i.date);return dt&&dt<=toD;});}
+      if(fFrom)d=d.filter(i=>parseDt(i.date)>=parseDt(fromInp(fFrom)));
+      if(fTo)d=d.filter(i=>parseDt(i.date)<=parseDt(fromInp(fTo)));
       return d;
     },[search,fCat,fAge,fUser,fFrom,fTo]);
     return (
@@ -1210,7 +1210,7 @@ export default function App() {
                           <button style={S.btn("#f59e0b","#000","5px 6px",11)} onClick={()=>setCallModal(inv)}>📞</button>
                           <button style={S.btn("#10b981","#fff","5px 6px",11)} onClick={()=>setPayModal(inv)}>💰</button>
                           <button style={S.btn("#25d366","#fff","5px 6px",11)} onClick={()=>setWaModal(inv)}>💬</button>
-                          <button style={S.btn("#6366f1","#fff","5px 6px",11)} onClick={()=>setEditInvModal(inv)}>✏️</button>
+                          <button style={S.btn("#6366f1","#fff","5px 6px",11)} onClick={()=>setEditInvModal(inv)}>✏`</button>
                           {canManage&&<button style={S.btn("#0ea5e9","#fff","5px 6px",11)} onClick={()=>setAssignModal(inv)}>👤</button>}
                         </div>
                       </td>
@@ -1232,8 +1232,8 @@ export default function App() {
       if(search)d=d.filter(c=>c.customer.toLowerCase().includes(search.toLowerCase()));
       if(fCat!=="all")d=d.filter(c=>c.invoices.some(i=>i.category===fCat));
       if(fUser!=="all")d=d.filter(c=>c.assignedTo===fUser||(fUser==="unassigned"&&!c.assignedTo));
-      if(fFrom){const[fy,fm,fd]=fFrom.split("-");const frD=new Date(Number(fy),Number(fm)-1,Number(fd));d=d.filter(c=>{const dt=parseDt(c.oldestDate);return dt&&dt>=frD;});}
-      if(fTo){const[ty,tm2,td]=fTo.split("-");const toD=new Date(Number(ty),Number(tm2)-1,Number(td),23,59,59);d=d.filter(c=>{const dt=parseDt(c.oldestDate);return dt&&dt<=toD;});}
+      if(fFrom)d=d.filter(c=>parseDt(c.oldestDate)>=parseDt(fromInp(fFrom)));
+      if(fTo)d=d.filter(c=>parseDt(c.oldestDate)<=parseDt(fromInp(fTo)));
       return d;
     },[search,fCat,fUser,fFrom,fTo]);
     return (
@@ -1381,7 +1381,7 @@ export default function App() {
                       <div style={{fontSize:11,color:"#475569",marginTop:2}}>🔑 {u.username} / {u.password}</div>
                     </div>
                     <div style={{display:"flex",gap:6}}>
-                      {canManage&&<button style={S.btn("#6366f1","#fff","5px 10px",11)} onClick={()=>setEditingUser(u.id)}>✏️ Edit</button>}
+                      {canManage&&<button style={S.btn("#6366f1","#fff","5px 10px",11)} onClick={()=>setEditingUser(u.id)}>✏` Edit</button>}
                       {canManage&&u.role!=="owner"&&<button style={S.btn("#ef4444","#fff","5px 10px",11)} onClick={()=>{if(window.confirm(`Delete ${u.name}?`)){const updUsers=users.filter(x=>x.id!==u.id);setUsers(updUsers);syncSettings({users:updUsers});}}}>🗑</button>}
                     </div>
                   </div>
@@ -1708,7 +1708,7 @@ export default function App() {
   };
 
   /* ── LAYOUT ────────────────────────────────────────────────────── */
-  const TABS = [["dashboard","📊 Dashboard"],["invoices","📋 Invoices"],["customers","👤 Customers"],["collections","💰 Collections"],["calllog","📞 Call Log"],...(canManage?[["settings","⚙ Settings"]]:[] )];
+  const TABS = [["dashboard","📊 Dashboard"],["invoices","📋 Invoices"],["customers","👤 Customers"],["collections","💰 Collections"],["calllog","📞 Call Log"],...(canManage?[["settings","⚙` Settings"]]:[] )];
 
   return (
     <div style={S.app}>
@@ -1745,7 +1745,7 @@ export default function App() {
             animation:"slideIn 0.3s ease",
           }}>
             <span style={{fontSize:20}}>
-              {t.type==="success"?"✅":t.type==="error"?"❌":t.type==="warning"?"⚠️":"ℹ️"}
+              {t.type==="success"?"✅":t.type==="error"?"❌":t.type==="warning"?"⚠️":"ℹ`"}
             </span>
             <span>{t.message}</span>
           </div>
@@ -1781,7 +1781,7 @@ export default function App() {
             window.print();
             document.title=orig;
           }} style={{...S.btn("#1f2d3d","#94a3b8","7px 14px",12),border:"1px solid #334155"}}>
-            🖨️ Print
+            🖨` Print
           </button>
         </div>
       </div>
