@@ -161,12 +161,13 @@ export default function App() {
           }
         }
 
-        // STEP 2: Seed invoices if empty
-        const invSnap = await getDoc(doc(db, "invoices", "i1"));
-        if(!invSnap.exists()) {
+        // STEP 2: Seed invoices only once (use marker to prevent re-seeding after delete)
+        const markerSnap = await getDoc(doc(db, "settings", "seeded"));
+        if(!markerSnap.exists()) {
           setSyncing(true);
           const batch = writeBatch(db);
           SEED_INVOICES.forEach(inv => batch.set(doc(db, "invoices", inv.id), inv));
+          batch.set(doc(db, "settings", "seeded"), { done: true });
           await batch.commit();
           setSyncing(false);
         }
@@ -399,14 +400,9 @@ export default function App() {
 
   const deleteInvoice = async id => {
     if(window.confirm("Delete this invoice?")) {
-      try {
-        await deleteDoc(doc(db, "invoices", id));
-        setInvoices(p => p.filter(i => i.id !== id));
-        showToast("Invoice deleted!", "success");
-      } catch(e) {
-        console.error(e);
-        showToast("Delete failed! Check internet connection.", "error");
-      }
+      setInvoices(p => p.filter(i => i.id !== id));
+      try { await deleteDoc(doc(db, "invoices", id)); } catch(e) { console.error(e); }
+      showToast("Invoice deleted!", "warning");
     }
   };
 
