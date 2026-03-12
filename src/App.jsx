@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, getDoc } from "firebase/firestore";
 
@@ -1161,21 +1161,27 @@ export default function App() {
   );
 
   const InvoicesTab = () => {
-    const [search,setSearch]=useState(""); const [fCat,setFCat]=useState("all"); const [fAge,setFAge]=useState("all"); const [fUser,setFUser]=useState("all"); const [fFrom,setFFrom]=useState(""); const [fTo,setFTo]=useState("");
+    const [searchRaw,setSearchRaw]=useState(""); const [search,setSearch]=useState("");
+    const [fCat,setFCat]=useState("all"); const [fAge,setFAge]=useState("all"); const [fUser,setFUser]=useState("all"); const [fFrom,setFFrom]=useState(""); const [fTo,setFTo]=useState("");
+    const [page,setPage]=useState(1); const PAGE_SIZE=50;
+    // Debounce search input
+    useEffect(()=>{ const t=setTimeout(()=>{setSearch(searchRaw);setPage(1);},300); return()=>clearTimeout(t); },[searchRaw]);
     const filtered=useMemo(()=>{
       let d=[...myPending];
       if(search)d=d.filter(i=>i.customer.toLowerCase().includes(search.toLowerCase())||i.invoice.toLowerCase().includes(search.toLowerCase()));
       if(fCat!=="all")d=d.filter(i=>i.category===fCat);
       if(fAge!=="all")d=d.filter(i=>{const days=daysAgo(i.date);if(fAge==="0-30")return days<=30;if(fAge==="31-60")return days>30&&days<=60;if(fAge==="61-90")return days>60&&days<=90;return days>90;});
       if(fUser!=="all")d=d.filter(i=>i.assignedTo===fUser||(fUser==="unassigned"&&!i.assignedTo));
-      if(fFrom)d=d.filter(i=>parseDt(i.date)>=parseDt(fromInp(fFrom)));
-      if(fTo)d=d.filter(i=>parseDt(i.date)<=parseDt(fromInp(fTo)));
+      if(fFrom){const[fy,fm,fd]=fFrom.split("-");const frD=new Date(Number(fy),Number(fm)-1,Number(fd));d=d.filter(i=>{const dt=parseDt(i.date);return dt&&dt>=frD;});}
+      if(fTo){const[ty,tm2,td]=fTo.split("-");const toD=new Date(Number(ty),Number(tm2)-1,Number(td),23,59,59);d=d.filter(i=>{const dt=parseDt(i.date);return dt&&dt<=toD;});}
       return d;
     },[search,fCat,fAge,fUser,fFrom,fTo]);
+    const totalPages=Math.ceil(filtered.length/PAGE_SIZE);
+    const paginated=useMemo(()=>filtered.slice((page-1)*PAGE_SIZE,page*PAGE_SIZE),[filtered,page]);
     return (
       <div>
         <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search…" style={{...S.inp,width:180}}/>
+          <input value={searchRaw} onChange={e=>{setSearchRaw(e.target.value);setPage(1);}} placeholder="🔍 Search…" style={{...S.inp,width:180}}/>
           <select value={fCat} onChange={e=>setFCat(e.target.value)} style={{...S.inp,width:120}}><option value="all">All Categories</option>{cats.map(c=><option key={c}>{c}</option>)}</select>
           <select value={fAge} onChange={e=>setFAge(e.target.value)} style={{...S.inp,width:110}}><option value="all">All Aging</option><option value="0-30">0-30d</option><option value="31-60">31-60d</option><option value="61-90">61-90d</option><option value="90+">90d+</option></select>
           {canManage&&<select value={fUser} onChange={e=>setFUser(e.target.value)} style={{...S.inp,width:130}}><option value="all">All Staff</option><option value="unassigned">Unassigned</option>{users.filter(u=>u.role!=="owner").map(u=><option key={u.id}>{u.name}</option>)}</select>}
@@ -1192,7 +1198,7 @@ export default function App() {
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr>{["Invoice","Customer","Cat","Balance","Risk","Assigned","Follow-up","Actions"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
               <tbody>
-                {filtered.map((inv,i)=>{
+                {paginated.map((inv,i)=>{
                   const bal=inv.originalAmt-inv.paidAmt; const days=daysAgo(inv.date); const fl=risk(days);
                   const fu=followUps[inv.id]; const fuOD=fu?.date&&fu.date<=TODAY_STR;
                   const assigned=users.find(u=>u.name===inv.assignedTo);
@@ -1221,6 +1227,11 @@ export default function App() {
             </table>
           </div>
         </div>
+        {totalPages>1&&<div style={{display:"flex",gap:6,justifyContent:"center",marginTop:10,alignItems:"center"}}>
+          <button style={S.btn("#1f2d3d","#94a3b8","5px 10px",11)} onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1}>← Prev</button>
+          <span style={{fontSize:11,color:"#475569"}}>Page {page} of {totalPages} · {filtered.length} invoices</span>
+          <button style={S.btn("#1f2d3d","#94a3b8","5px 10px",11)} onClick={()=>setPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages}>Next →</button>
+        </div>}
       </div>
     );
   };
@@ -1232,8 +1243,8 @@ export default function App() {
       if(search)d=d.filter(c=>c.customer.toLowerCase().includes(search.toLowerCase()));
       if(fCat!=="all")d=d.filter(c=>c.invoices.some(i=>i.category===fCat));
       if(fUser!=="all")d=d.filter(c=>c.assignedTo===fUser||(fUser==="unassigned"&&!c.assignedTo));
-      if(fFrom)d=d.filter(c=>parseDt(c.oldestDate)>=parseDt(fromInp(fFrom)));
-      if(fTo)d=d.filter(c=>parseDt(c.oldestDate)<=parseDt(fromInp(fTo)));
+      if(fFrom){const[fy,fm,fd]=fFrom.split("-");const frD=new Date(Number(fy),Number(fm)-1,Number(fd));d=d.filter(c=>{const dt=parseDt(c.oldestDate);return dt&&dt>=frD;});}
+      if(fTo){const[ty,tm2,td]=fTo.split("-");const toD=new Date(Number(ty),Number(tm2)-1,Number(td),23,59,59);d=d.filter(c=>{const dt=parseDt(c.oldestDate);return dt&&dt<=toD;});}
       return d;
     },[search,fCat,fUser,fFrom,fTo]);
     return (
