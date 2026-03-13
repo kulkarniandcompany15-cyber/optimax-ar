@@ -233,7 +233,7 @@ export default function App() {
   const [assignModal,  setAssignModal]  = useState(null); // invoice or customer
 
   /* ── DERIVED ───────────────────────────────────────────────────── */
-  const pending = useMemo(() => invoices.filter(i => i.paidAmt < i.originalAmt), [invoices]);
+  const pending = useMemo(() => invoices.filter(i => i.paidAmt < i.originalAmt).sort((a,b)=>parseDt(b.date)-parseDt(a.date)), [invoices]);
 
   // Filter by assigned user for staff
   const myPending = useMemo(() => {
